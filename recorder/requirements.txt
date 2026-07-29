@@ -1,0 +1,6 @@
+# Phase 0 recorder dependencies (Python 3.11+).
+#
+# Deliberately minimal: the recorder has to run unattended for six weeks, and
+# every dependency is something that can break at 3 a.m.  REST snapshots go
+# through urllib from the standard library rather than adding an HTTP client.
+websockets>=12.0

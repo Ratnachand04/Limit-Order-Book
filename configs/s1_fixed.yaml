@@ -1,0 +1,41 @@
+# S1 -- fixed spread, inventory-capped (master plan Part 6).
+#
+# Quote at a fixed distance each side of the mid, pull the side that would push
+# inventory through the cap, and re-quote on a 100 ms timer with a minimum-move
+# filter.
+#
+# S1 exists to make ONE cost visible: repricing sends the order to the back of
+# the new queue. `requote_min_ticks` is the knob that controls it, and sweeping
+# that knob is an experiment in its own right (Part 11 pitfall #6) -- run this
+# config at 0, 1, 2 and 5 and compare fill rates against markouts.
+
+symbols: [BTCUSDT]
+tick_size: {BTCUSDT: 0.01}
+lot_size:  {BTCUSDT: 0.001}
+
+latency_ms: {in: 50, out: 50, jitter_exp_ms: 5}
+queue_model: PESS
+fill_model: QUEUE
+fees_bp: {maker: 2.0, taker: 5.0}
+
+strategy:
+  name: S1
+  order_size_lots: 1
+  q_max: 5
+  spread_ticks: 2           # distance each side of the mid
+  requote_min_ticks: 2      # the knob this strategy exists to measure
+  timer_ms: 100
+  quote_both_sides: true
+  sigma_sample_s: 1
+  sigma_window_s: 600
+  enforce_min_edge: true
+
+markouts:
+  horizons_s: [0.1, 0.5, 1, 2, 5, 10, 30, 60]
+
+probes: {enabled: false}
+
+seed: 42
+input_path: ""
+output_dir: data/results/s1_fixed
+eval_window: {start: 2026-09-01, end: 2026-10-10}

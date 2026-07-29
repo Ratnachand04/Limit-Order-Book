@@ -1,0 +1,69 @@
+# S3 -- A-S with a microprice fair value and a toxicity pull
+# (master plan §3.6, Part 6, RQ5).
+#
+# Two changes from S2, and only two, so the comparison is clean:
+#
+#   1. Fair value becomes the weighted mid m_w = I*P_ask + (1-I)*P_bid, where
+#      I = Q_bid/(Q_bid + Q_ask). A heavy bid queue means the ask side is
+#      likelier to be consumed first, so fair value shifts toward the thin side.
+#   2. When one-sided aggression over the last 2 s exceeds a threshold, the
+#      endangered quote is pulled for 1 s. Sustained one-sided flow is the
+#      observable signature of informed traders arriving.
+#
+# MEASURE BEFORE YOU USE (§3.6): regress m_{t+h} - m_t on (m_w - m)_t for
+# h in {1, 5, 10} s on CALIBRATION data and report R^2 and the information
+# coefficient. If the microprice has no predictive content on this instrument,
+# S3 is not an improvement and the honest result is to say so.
+#
+# RQ5 is exactly "S3 vs S2 per-fill markouts, out of sample" -- not PnL, which
+# is dominated by fees, but markouts, which measure whether the fills got better.
+
+symbols: [BTCUSDT]
+tick_size: {BTCUSDT: 0.01}
+lot_size:  {BTCUSDT: 0.001}
+
+latency_ms: {in: 50, out: 50, jitter_exp_ms: 5}
+queue_model: PESS
+fill_model: QUEUE
+fees_bp: {maker: 2.0, taker: 5.0}
+
+strategy:
+  name: S3
+  order_size_lots: 1
+  q_max: 5
+  requote_min_ticks: 2
+  timer_ms: 100
+  quote_both_sides: true
+
+  sigma_sample_s: 1
+  sigma_window_s: 600
+
+  gamma: 1.0e-5
+  horizon_s: 60
+  k_A_calibration: ""
+  k_fallback: 0.035
+  A_fallback: 1.0
+  glft_mode: false
+  tick_floor_at_touch: true
+
+  # §3.6 microprice fair value.
+  use_weighted_mid: true
+
+  # Toxicity pull. The threshold is |signed flow| / total flow over the window;
+  # 0.75 means three quarters of the aggressive volume went one way. These are
+  # frozen on calibration data like every other parameter.
+  toxicity_window_s: 2.0
+  toxicity_threshold: 0.75
+  toxicity_pull_s: 1.0
+
+  enforce_min_edge: true
+
+markouts:
+  horizons_s: [0.1, 0.5, 1, 2, 5, 10, 30, 60]
+
+probes: {enabled: false}
+
+seed: 42
+input_path: ""
+output_dir: data/results/s3_micro
+eval_window: {start: 2026-09-01, end: 2026-10-10}

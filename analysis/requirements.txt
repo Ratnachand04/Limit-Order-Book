@@ -1,0 +1,8 @@
+# Analysis and figure generation (Python 3.11+).
+#
+# The C++ side writes CSVs and nothing else; everything here reads them.  That
+# separation is what makes "one command reproduces every figure from committed
+# CSVs" achievable, and it keeps the simulation free of plotting dependencies.
+pandas>=2.0
+numpy>=1.24
+matplotlib>=3.7

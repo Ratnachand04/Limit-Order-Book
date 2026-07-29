@@ -1,0 +1,66 @@
+# S2 -- Avellaneda-Stoikov (master plan §3.4, Part 6).
+#
+#   r      = s - q * gamma * sigma^2 * (T - t)
+#   spread = gamma * sigma^2 * (T - t) + (2/gamma) * ln(1 + gamma/k)
+#
+# with rolling sigma (§3.2, 10-minute window) and k from the weekly lambda(delta)
+# calibration (§3.3).
+#
+# Read the two terms before changing anything: the first charges for the
+# volatility risk a fill creates, the second is the monopolist-dealer markup
+# that SHRINKS as k grows. For small gamma the second term tends to 2/k -- the
+# market's elasticity, not your risk aversion, sets the spread.
+#
+# On a tick-constrained instrument the literal A-S quotes sit far behind the
+# touch (the worked example asks for ~$57 on BTC). `tick_floor_at_touch` is the
+# §3.4 practical adaptation: take the inventory skew and the no-quote decision
+# from the model, and floor the placement at the touch.
+
+symbols: [BTCUSDT]
+tick_size: {BTCUSDT: 0.01}
+lot_size:  {BTCUSDT: 0.001}
+
+latency_ms: {in: 50, out: 50, jitter_exp_ms: 5}
+queue_model: PESS
+fill_model: QUEUE
+fees_bp: {maker: 2.0, taker: 5.0}
+
+strategy:
+  name: S2_AS
+  order_size_lots: 1
+  q_max: 5
+  requote_min_ticks: 2
+  timer_ms: 100
+  quote_both_sides: true
+
+  sigma_sample_s: 1
+  sigma_window_s: 600
+
+  # gamma is selected on CALIBRATION data only, from {1e-6, 1e-5, 1e-4}, and
+  # frozen in docs/EXPERIMENTS.md before the evaluation window is touched.
+  gamma: 1.0e-5
+  horizon_s: 60
+
+  # Produced by:
+  #   lob_calibrate --input data/binary/<calibration days>.lobbin \
+  #                 --symbol BTCUSDT --tick 0.01 --lot 0.001 \
+  #                 --out data/calib/kA_BTCUSDT.json --points data/calib/lambda_fit.csv
+  # Leaving this empty is legal but the run manifest will record that the
+  # fallbacks were used -- never quote such a run as calibrated.
+  k_A_calibration: ""
+  k_fallback: 0.035
+  A_fallback: 1.0
+
+  glft_mode: false
+  tick_floor_at_touch: true
+  enforce_min_edge: true
+
+markouts:
+  horizons_s: [0.1, 0.5, 1, 2, 5, 10, 30, 60]
+
+probes: {enabled: false}
+
+seed: 42
+input_path: ""
+output_dir: data/results/s2_as
+eval_window: {start: 2026-09-01, end: 2026-10-10}

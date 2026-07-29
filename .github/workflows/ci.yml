@@ -1,0 +1,148 @@
+# CI (CLAUDE.md tech constraints: "build, tests, sanitizers, determinism check,
+# clang-format check").
+#
+# The determinism job is the one that matters most.  Tests catch logic errors;
+# the determinism check catches the class of bug that makes results
+# unreproducible -- wall-clock time, unordered-container iteration order, a
+# second RNG -- which would quietly invalidate every number in the paper.
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    name: clang-format
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install clang-format
+        run: sudo apt-get update && sudo apt-get install -y clang-format-18
+      - name: Check formatting
+        run: |
+          FILES=$(git ls-files '*.cpp' '*.hpp')
+          echo "$FILES" | xargs clang-format-18 --dry-run --Werror --style=file
+
+  linux:
+    name: Linux ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: gcc-release
+            preset: gcc-release
+          - name: gcc-debug-sanitize
+            preset: gcc-debug-sanitize
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y ninja-build cmake g++-13
+
+      - name: Configure
+        env:
+          CC: gcc-13
+          CXX: g++-13
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }} --parallel
+
+      - name: Test
+        env:
+          # Halt on the first undefined-behaviour report rather than continuing
+          # with a program that has already violated the standard.
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+          ASAN_OPTIONS: detect_leaks=1
+        run: ctest --preset ${{ matrix.preset }} --output-on-failure
+
+  windows:
+    name: Windows MSVC
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Configure
+        run: cmake --preset msvc-release
+      - name: Build
+        run: cmake --build --preset msvc-release --parallel
+      - name: Test
+        run: ctest --preset msvc-release --output-on-failure
+
+  determinism:
+    name: Determinism
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y ninja-build cmake g++-13
+      - name: Configure
+        env:
+          CC: gcc-13
+          CXX: g++-13
+        run: cmake --preset gcc-release
+      - name: Build
+        run: cmake --build --preset gcc-release --parallel
+
+      # In-process: two runs of the same config must produce byte-identical CSVs.
+      - name: Determinism unit tests
+        run: ctest --preset gcc-release --output-on-failure -R 'Determinism|GoldenReplay'
+
+      # Cross-process, which is the stronger claim: two separate invocations of
+      # the binary, on the same input and seed, must agree byte for byte.
+      - name: Cross-process replay comparison
+        run: |
+          set -euo pipefail
+          BIN=build/gcc-release/bin
+          FIXTURE=tests/fixtures/golden_10min.lobbin
+          if [ ! -f "$FIXTURE" ]; then
+            echo "golden fixture not committed yet; the in-process determinism"
+            echo "tests above still ran. Commit tests/fixtures/golden_10min.lobbin"
+            echo "to enable the cross-process check."
+            exit 0
+          fi
+          "$BIN/lob_replay" --config configs/s0_queue.yaml --input "$FIXTURE" \
+              --output /tmp/run_a --quiet
+          "$BIN/lob_replay" --config configs/s0_queue.yaml --input "$FIXTURE" \
+              --output /tmp/run_b --quiet
+          for f in fills.csv markouts.csv pnl_daily.csv queue_stats.csv manifest.yaml; do
+            diff -q "/tmp/run_a/$f" "/tmp/run_b/$f"
+          done
+          echo "two independent processes produced byte-identical outputs"
+
+  python:
+    name: Python (recorder + analysis)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r recorder/requirements.txt
+          python -m pip install -r analysis/requirements.txt
+          python -m pip install ruff
+      - name: Lint
+        run: ruff check recorder analysis tools --select E9,F63,F7,F82
+      - name: Import check
+        run: |
+          python -c "import ast,sys,pathlib
+          for p in list(pathlib.Path('recorder').rglob('*.py')) + list(pathlib.Path('analysis').rglob('*.py')):
+              ast.parse(p.read_text(encoding='utf-8'))
+              print('parsed', p)"
+      - name: Analysis runs cleanly with no data
+        # The correct behaviour with no results is to skip every figure and say
+        # which inputs were missing -- never to invent one (CLAUDE.md rule 4).
+        run: |
+          mkdir -p data/results
+          python analysis/make_figures.py --results data/results --out /tmp/figs

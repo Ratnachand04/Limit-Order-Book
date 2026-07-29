@@ -1,0 +1,43 @@
+# S0_touch -- the strawman (master plan Part 6, RQ1).
+#
+# A naive joiner evaluated under the TOUCH-RULE fill model: any trade printed at
+# our price fills us, with no regard for how much quantity was ahead of us in
+# the queue. This is what nearly every retail and student backtest of a passive
+# strategy actually does.
+#
+# It is in the repository on purpose. Paired with s0_queue.yaml -- identical
+# strategy, identical data, honest fill model -- the difference between the two
+# is the headline result of the whole project. Run them together or not at all.
+
+symbols: [BTCUSDT]
+tick_size: {BTCUSDT: 0.01}
+lot_size:  {BTCUSDT: 0.001}
+
+latency_ms: {in: 50, out: 50, jitter_exp_ms: 5}
+queue_model: PESS
+fill_model: TOUCH
+fees_bp: {maker: 2.0, taker: 5.0}
+
+strategy:
+  name: S0_touch
+  order_size_lots: 1
+  q_max: 5
+  requote_min_ticks: 2
+  timer_ms: 100
+  quote_both_sides: true
+  sigma_sample_s: 1
+  sigma_window_s: 600
+  # The min-edge check is OFF here. The strawman is meant to be naive in exactly
+  # the way real naive backtests are; switching on a risk control it would not
+  # have had would flatter it and blunt the comparison.
+  enforce_min_edge: false
+
+markouts:
+  horizons_s: [0.1, 0.5, 1, 2, 5, 10, 30, 60]
+
+probes: {enabled: false}
+
+seed: 42
+input_path: ""
+output_dir: data/results/s0_touch
+eval_window: {start: 2026-09-01, end: 2026-10-10}

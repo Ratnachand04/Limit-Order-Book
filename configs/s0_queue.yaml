@@ -1,0 +1,42 @@
+# S0_queue -- the same joiner, honestly simulated (master plan Part 6, RQ1).
+#
+# Byte-for-byte identical to s0_touch.yaml except `name` and `fill_model`. That
+# is deliberate: every difference in the results is then attributable to the
+# fill model alone, which is what makes RQ1 a controlled comparison rather than
+# an anecdote.
+
+symbols: [BTCUSDT]
+tick_size: {BTCUSDT: 0.01}
+lot_size:  {BTCUSDT: 0.001}
+
+latency_ms: {in: 50, out: 50, jitter_exp_ms: 5}
+queue_model: PESS
+fill_model: QUEUE
+fees_bp: {maker: 2.0, taker: 5.0}
+
+strategy:
+  name: S0_queue
+  order_size_lots: 1
+  q_max: 5
+  requote_min_ticks: 2
+  timer_ms: 100
+  quote_both_sides: true
+  sigma_sample_s: 1
+  sigma_window_s: 600
+  enforce_min_edge: false
+
+markouts:
+  horizons_s: [0.1, 0.5, 1, 2, 5, 10, 30, 60]
+
+# RQ2's fill-probability surfaces come from this configuration.
+probes:
+  enabled: true
+  interval_s: 5
+  size_lots: 1
+  depths_ticks: [1, 2, 3, 5, 10]
+  horizons_s: [1, 5, 30, 60]
+
+seed: 42
+input_path: ""
+output_dir: data/results/s0_queue
+eval_window: {start: 2026-09-01, end: 2026-10-10}

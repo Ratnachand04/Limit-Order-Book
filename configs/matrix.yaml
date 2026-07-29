@@ -1,0 +1,40 @@
+# The experiment matrix (master plan Part 7).
+#
+#   {queue: PESS, OPT, PROP}
+# x {S0_touch, S0_queue, S1, S2_AS, S2_GLFT, S3}
+# x {maker fee bp: -0.5, 0, 1, 2, 5, 10}
+# x {latency ms: 5, 50, 200}
+# x {symbols}
+#
+# = 324 cells per symbol per day of data. Cheap, because every cell is a replay
+# over the same decoded event array and only the configuration changes.
+#
+# Why a matrix rather than one configuration: the fee and latency axes turn a
+# single strategy into a MAP of viability. The fee-viability frontier (RQ4) is
+# one of the paper's best figures and one of its best interview answers, and it
+# does not exist without this sweep. A single cherry-picked cell is not a result.
+#
+# Usage:
+#   lob_sweep --config configs/base.yaml --matrix configs/matrix.yaml \
+#             --input data/binary/BTCUSDT_2026-09-01.lobbin \
+#             --output data/results/matrix
+#
+#   lob_sweep ... --dry-run     # list the cells without running them
+
+strategies: [S0_touch, S0_queue, S1, S2_AS, S2_GLFT, S3]
+
+# §3.7. All three are reported. PESS is the headline (a conservative bound you
+# can defend forever), OPT is the upper bound, PROP the central estimate. The
+# bracket IS the method -- none of the three is observable under L2 data.
+queue_models: [PESS, OPT, PROP]
+
+# §2.4. -0.5 bp is a volume-tier rebate; 10 bp is a retail spot maker fee.
+# Results at 0 bp alone mean nothing (Part 11 pitfall #7).
+fees_bp: [-0.5, 0, 1, 2, 5, 10]
+
+# §4.5. 5 ms is decorative for a retail setup; 50-200 ms is the honest band and
+# should be presented as such (Part 11 pitfall #10).
+latency_ms: [5, 50, 200]
+
+# Binary event files, one per symbol-day. Leave empty to use --input.
+inputs: []

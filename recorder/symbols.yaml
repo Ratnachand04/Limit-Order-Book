@@ -1,0 +1,35 @@
+# Recording list (master plan §4.3, Part 7 "Data plan").
+#
+# PROVISIONAL. The two mid-caps below are placeholders. Run
+#
+#     python recorder/symbol_scout.py --symbols BTCUSDT ETHUSDT SOLUSDT ... --minutes 20
+#
+# for a day, pick two instruments whose median spread is >= 3-5 ticks AND
+# >= 2 bp, replace the placeholders, and commit the choice.
+#
+# Part 11 pitfall #12: choose in week 0, commit, and KEEP EVEN THE BORING ONES.
+# Swapping a symbol out after seeing results is survivorship bias.
+#
+# Why two tight and two wide (§2.4): at BTC's $0.01 tick, capturing the full
+# one-tick spread earns ~0.001 bp of notional against a 2-10 bp maker fee --
+# three orders of magnitude under water. The tight majors are the degenerate
+# case the paper explains; the wider mid-caps are where the economics are
+# non-degenerate and RQ4's fee frontier has somewhere to sit.
+
+market: futures       # USD-M perpetuals: they carry `pu`, which makes the
+                      # sequence-continuity check exact rather than inferred.
+
+symbols:
+  - BTCUSDT           # tight major, degenerate economics -- kept on purpose
+  - ETHUSDT           # tight major
+  - SOLUSDT           # PLACEHOLDER mid-cap: confirm with symbol_scout
+  - ARBUSDT           # PLACEHOLDER mid-cap: confirm with symbol_scout
+
+# Streams recorded per symbol (all public market data; no keys, ever):
+#   <symbol>@depth@100ms   diff-depth with sequence numbers
+#   <symbol>@aggTrade      trades with the aggressor-side flag
+#   <symbol>@bookTicker    BBO, for cross-checking the reconstructed book
+# plus a REST /depth snapshot every 30 minutes as a resync anchor.
+
+snapshot_interval_s: 1800
+out_dir: data/raw

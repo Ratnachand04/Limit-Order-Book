@@ -29,14 +29,31 @@ function Report {
 Write-Host "`n=== lob_sim toolchain check ===`n"
 
 # --- Visual Studio / MSVC ---------------------------------------------------
+# Note the absence of -all: vswhere hides INCOMPLETE installs by default, and an
+# incomplete install is exactly what we must not accept. A partially installed
+# Build Tools instance can carry cl.exe while missing the Windows SDK, which
+# fails at the first #include rather than at configure time.
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
 $vsPath = $null
+$incomplete = @()
 if (Test-Path $vswhere) {
   $vsPath = & $vswhere -latest -products * `
     -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
     -property installationPath | Select-Object -First 1
+
+  # Surface incomplete instances so the diagnosis is not "nothing is installed"
+  # when the truth is "something is half installed".
+  $all = & $vswhere -all -products * -prerelease -format json | Out-String
+  if ($all.Trim()) {
+    foreach ($inst in ($all | ConvertFrom-Json)) {
+      if (-not $inst.isComplete) { $incomplete += "$($inst.displayName) at $($inst.installationPath)" }
+    }
+  }
 }
-Report 'Visual Studio (C++)' ([bool]$vsPath) $(if ($vsPath) { $vsPath } else { 'no instance with the VC++ toolset' })
+Report 'Visual Studio (C++)' ([bool]$vsPath) $(if ($vsPath) { $vsPath } else { 'no COMPLETE instance with the VC++ toolset' })
+foreach ($inc in $incomplete) {
+  Write-Host ("       incomplete install found: {0}" -f $inc) -ForegroundColor Yellow
+}
 
 # --- Windows SDK ------------------------------------------------------------
 $sdkRoot = "${env:ProgramFiles(x86)}\Windows Kits\10\Include"

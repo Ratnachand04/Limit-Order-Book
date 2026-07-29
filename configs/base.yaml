@@ -1,0 +1,82 @@
+# Base experiment configuration (master plan Appendix A).
+#
+# Every other config in this directory is this file with a few keys changed, and
+# the sweep runner varies the same keys from the command line. One config file
+# plus one command line is the complete description of a run, which is what
+# makes "README numbers traceable to run IDs" achievable.
+
+symbols: [BTCUSDT]
+tick_size: {BTCUSDT: 0.01}
+lot_size:  {BTCUSDT: 0.001}
+
+# §4.5. 50 ms is the honest retail band; Part 11 pitfall #10 warns that 5 ms
+# results are decorative. The sweep covers {5, 50, 200}.
+latency_ms: {in: 50, out: 50, jitter_exp_ms: 5}
+
+# §3.7. PESS is the default because headline numbers must be defensible as a
+# conservative bound: cancels behind us first, so our queue position improves as
+# slowly as reality could allow.
+queue_model: PESS
+
+# QUEUE is the honest fill model. TOUCH is the fiction RQ1 measures, and it is
+# only ever paired with S0_touch.
+fill_model: QUEUE
+
+# §2.4. 2 bp is the USD-M futures base maker tier. The frontier sweep runs
+# {-0.5, 0, 1, 2, 5, 10}; results at a single fee level mean very little.
+fees_bp: {maker: 2.0, taker: 5.0}
+
+strategy:
+  name: S0_queue            # S0_touch | S0_queue | S1 | S2_AS | S2_GLFT | S3
+  order_size_lots: 1
+  q_max: 5                  # hard inventory cap; breaching it forces a taker exit
+  requote_min_ticks: 2      # repricing resets queue position -- do not churn
+  timer_ms: 100
+  spread_ticks: 1           # S1 only
+  quote_both_sides: true
+
+  # §3.2. Delta = 1 s because faster sampling picks up bid-ask bounce and slower
+  # loses reactivity; the window is 10 minutes.
+  sigma_sample_s: 1
+  sigma_window_s: 600
+
+  # §3.4 / §3.5. gamma is swept over {1e-6, 1e-5, 1e-4} on CALIBRATION data only.
+  gamma: 1.0e-5
+  horizon_s: 60             # a rolling horizon, not a real terminal time
+  k_A_calibration: ""       # set to the lob_calibrate JSON once it exists
+  k_fallback: 0.035         # only used when no calibration file is given; a run
+  A_fallback: 1.0           # on fallbacks is recorded as such in the manifest
+  glft_mode: false
+  tick_floor_at_touch: true # §3.4 practical adaptation
+
+  # S3 only (§3.6, Part 6).
+  use_weighted_mid: false
+  toxicity_window_s: 2.0
+  toxicity_threshold: 0.75
+  toxicity_pull_s: 1.0
+
+  # Part 6 risk control. How often this binds IS finding RQ4.
+  enforce_min_edge: true
+
+# §3.9. CLAUDE.md Phase 5 fixes this grid.
+markouts:
+  horizons_s: [0.1, 0.5, 1, 2, 5, 10, 30, 60]
+
+# §3.8 / RQ2. Off by default because probes multiply the number of tracked
+# orders; the fill-probability runs turn them on.
+probes:
+  enabled: false
+  interval_s: 5
+  size_lots: 1
+  depths_ticks: [1, 2, 3, 5, 10]
+  horizons_s: [1, 5, 30, 60]
+
+seed: 42
+dual_book_check: false      # on in CI and in the debug preset
+
+input_path: ""              # set with --input
+output_dir: data/results/base
+
+# §3.10. Calibrate on weeks 1-3, evaluate on weeks 4-6+, and never iterate a
+# parameter on the evaluation window.
+eval_window: {start: 2026-09-01, end: 2026-10-10}

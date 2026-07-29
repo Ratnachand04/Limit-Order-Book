@@ -1,0 +1,54 @@
+# ---- Build output -----------------------------------------------------------
+build/
+out/
+cmake-build-*/
+_deps/
+CMakeUserPresets.json
+CMakeSettings.json
+compile_commands.json
+install/
+
+# ---- Visual Studio / IDE ----------------------------------------------------
+.vs/
+.vscode/
+*.user
+*.suo
+*.sln.docstates
+*.vcxproj.filters
+
+# ---- Recorded market data: NEVER committed (CLAUDE.md repository layout) -----
+# The recorder produces gigabytes per day. The repo stores code and the small
+# committed fixtures only; every result must be regenerable from data/ + configs.
+data/raw/
+data/binary/
+data/results/
+data/figures/
+data/calib/
+
+# Loose data artifacts anywhere in the tree
+*.jsonl
+*.jsonl.gz
+*.gz
+
+# Binary event files, except the committed golden fixtures used by tests
+*.lobbin
+!tests/fixtures/**/*.lobbin
+
+# Analytics CSVs, except committed golden expectations
+*.csv
+!tests/fixtures/**/*.csv
+
+# ---- Python -----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+.pytest_cache/
+*.egg-info/
+
+# ---- OS ---------------------------------------------------------------------
+Thumbs.db
+desktop.ini
+.DS_Store

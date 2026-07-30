@@ -67,8 +67,9 @@ TEST(Instrument, FeeRoundsHalfAwayFromZeroSymmetrically) {
 
 TEST(Instrument, RejectsPricesOutsideTheTickGrid) {
   const Instrument inst("X", 0, 0.01, 0.001);
-  EXPECT_THROW(inst.ToTicks(1e12), std::out_of_range);
-  EXPECT_THROW(inst.ToLots(1e12), std::out_of_range);
+  // The results are [[nodiscard]], so they are consumed rather than dropped.
+  EXPECT_THROW({ volatile Ticks t = inst.ToTicks(1e12); (void)t; }, std::out_of_range);
+  EXPECT_THROW({ volatile Lots l = inst.ToLots(1e12); (void)l; }, std::out_of_range);
 }
 
 TEST(InstrumentTable, ResolvesSymbolIdsAndRejectsDuplicates) {
@@ -81,7 +82,7 @@ TEST(InstrumentTable, ResolvesSymbolIdsAndRejectsDuplicates) {
   EXPECT_EQ(table.ById(1).symbol(), "BBB");
   EXPECT_NE(table.Find("BBB"), nullptr);
   EXPECT_EQ(table.Find("CCC"), nullptr);
-  EXPECT_THROW(table.ById(2), std::out_of_range);
+  EXPECT_THROW({ const Instrument& i = table.ById(2); (void)i.symbol(); }, std::out_of_range);
   EXPECT_THROW(table.Add(Instrument("CCC", 0, 0.01, 0.001)), std::invalid_argument);
 }
 

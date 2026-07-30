@@ -42,10 +42,39 @@ TEST(AvellanedaStoikov, MonopolistMarkupApproachesTwoOverKForSmallGamma) {
   EXPECT_NEAR(markup, 57.14, 0.05);
 }
 
-TEST(AvellanedaStoikov, MonopolistMarkupGrowsWithGammaAndShrinksWithK) {
+TEST(AvellanedaStoikov, MonopolistMarkupShrinksWithBothGammaAndK) {
   const double base = MonopolistMarkup(1.0e-5, 0.035);
-  EXPECT_GT(MonopolistMarkup(1.0e-4, 0.035), base);  // more risk-averse -> wider
-  EXPECT_LT(MonopolistMarkup(1.0e-5, 0.070), base);  // more elastic  -> tighter
+
+  // An elastic market punishes wide quotes with zero fills, so the markup
+  // shrinks as k grows.  This is what §3.4 says, and the algebra agrees.
+  EXPECT_LT(MonopolistMarkup(1.0e-5, 0.070), base);
+
+  // §3.4 also says the markup "grows with gamma".  It does NOT, and the algebra
+  // is unambiguous: with x = gamma/k,
+  //     (2/gamma) * ln(1 + gamma/k) = (2/k) * ln(1+x)/x
+  // and ln(1+x)/x is strictly DECREASING in x for x > 0 (it tends to 1 as
+  // x -> 0). So this term alone falls as gamma rises. What actually grows with
+  // gamma is the TOTAL spread, because the inventory term gamma*sigma^2*(T-t)
+  // is linear in gamma and dominates the change -- see the test below.
+  EXPECT_LT(MonopolistMarkup(1.0e-4, 0.035), base);
+}
+
+TEST(AvellanedaStoikov, TotalSpreadGrowsWithGammaEvenThoughTheMarkupFalls) {
+  // The resolution of the discrepancy noted above, asserted directly.
+  AsInputs low = WorkedExample();
+  low.gamma = 1.0e-5;
+  AsInputs high = WorkedExample();
+  high.gamma = 1.0e-4;
+
+  const AsQuotes q_low = AvellanedaStoikov(low);
+  const AsQuotes q_high = AvellanedaStoikov(high);
+  ASSERT_TRUE(q_low.valid);
+  ASSERT_TRUE(q_high.valid);
+
+  // The markup term falls ...
+  EXPECT_LT(MonopolistMarkup(high.gamma, high.k), MonopolistMarkup(low.gamma, low.k));
+  // ... but the inventory term rises by more, so the total widens.
+  EXPECT_GT(q_high.total_spread, q_low.total_spread);
 }
 
 TEST(AvellanedaStoikov, ReservationPriceEqualsTheMidWhenFlat) {
@@ -104,7 +133,21 @@ TEST(AvellanedaStoikov, ReservationPriceIsLinearAndMonotoneInInventory) {
       AvellanedaStoikov(a).reservation_price - AvellanedaStoikov(b).reservation_price;
   const double step2 =
       AvellanedaStoikov(b).reservation_price - AvellanedaStoikov(c).reservation_price;
-  EXPECT_NEAR(step1, step2, 1e-12);
+  // The tolerance is set by the arithmetic, not by taste. These are differences
+  // of numbers near 100,000, so double cancellation leaves about
+  // 1e5 * 2.2e-16 ~ 2e-11 of noise; a tighter bound would be testing IEEE-754
+  // rounding rather than the formula.
+  EXPECT_NEAR(step1, step2, 1e-9);
+
+  // Linearity without the cancellation: the skew itself is computed directly,
+  // so it can be compared exactly against q * premium.
+  const double premium = InventoryRiskPremium(WorkedExample().gamma, WorkedExample().sigma,
+                                              WorkedExample().time_remaining_s);
+  for (const double q : {-4.0, -1.0, 0.0, 1.0, 4.0}) {
+    AsInputs in = WorkedExample();
+    in.inventory = q;
+    EXPECT_NEAR(AvellanedaStoikov(in).inventory_skew, q * premium, 1e-15);
+  }
 }
 
 TEST(AvellanedaStoikov, TotalSpreadDoesNotDependOnInventory) {

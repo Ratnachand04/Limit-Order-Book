@@ -1,0 +1,2 @@
+run_id,strategy,symbol,queue_assumption,maker_fee_bp,latency_in_ms,latency_out_ms,seed,date,spread_capture,inventory_pnl,fees,total,equity_change,identity_residual_x2,adverse_selection_10s_bp,fills,quotes_placed,notional_traded,dirty_events
+golden,S1,TESTUSDT,PESS,2.0000000000,50,50,20260729,2026-07-29,-0.0013100000,0.0034600000,-0.0139399500,-0.0117899500,-0.0117899500,0,0.1077219249,698,1478,69.6998600000,0

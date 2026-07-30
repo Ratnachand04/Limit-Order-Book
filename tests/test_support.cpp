@@ -100,20 +100,27 @@ std::vector<Event> SyntheticSession(const Instrument& inst, std::uint64_t seed, 
   for (Ts t = start_ts_us + step_us; t < start_ts_us + duration_us; t += step_us) {
     const double u = rng.Uniform01();
     if (u < 0.10) {
-      // Mid moves one tick.
+      // The touch moves one tick.
+      //
+      // The level being moved ONTO must be deleted from the opposite side
+      // first: moving up puts the new best bid exactly where the old best ask
+      // was, so emitting the bid before deleting that ask would produce a
+      // crossed book -- a stream no venue can send, and therefore not valid
+      // input for testing the book core against.
       const bool up = rng.Uniform01() < 0.5;
       if (up) {
+        out.push_back(MakeDepth(t, seq++, Side::kAsk, ask, 0, inst.symbol_id()));
         bid += 1;
         ask += 1;
       } else {
+        out.push_back(MakeDepth(t, seq++, Side::kBid, bid, 0, inst.symbol_id()));
         bid -= 1;
         ask -= 1;
       }
-      out.push_back(MakeDepth(t, seq++, Side::kBid, bid, bid_qty[0], inst.symbol_id()));
-      out.push_back(MakeDepth(t, seq++, Side::kAsk, ask, ask_qty[0], inst.symbol_id()));
-      // Delete the level that is now on the wrong side of the touch.
-      out.push_back(MakeDepth(t, seq++, up ? Side::kBid : Side::kAsk,
-                              up ? bid - 1 : ask + 1, 0, inst.symbol_id()));
+      out.push_back(
+          MakeDepth(t, seq++, Side::kBid, bid, static_cast<Lots>(bid_qty[0]), inst.symbol_id()));
+      out.push_back(
+          MakeDepth(t, seq++, Side::kAsk, ask, static_cast<Lots>(ask_qty[0]), inst.symbol_id()));
     } else if (u < 0.30) {
       // A trade against one side.
       const bool sell_aggressor = rng.Uniform01() < 0.5;
@@ -125,10 +132,12 @@ std::vector<Event> SyntheticSession(const Instrument& inst, std::uint64_t seed, 
       // The level shrinks by the traded amount.
       if (sell_aggressor) {
         bid_qty[0] = std::max<Lots64>(1, bid_qty[0] - qty);
-        out.push_back(MakeDepth(t, seq++, Side::kBid, bid, bid_qty[0], inst.symbol_id()));
+        out.push_back(
+            MakeDepth(t, seq++, Side::kBid, bid, static_cast<Lots>(bid_qty[0]), inst.symbol_id()));
       } else {
         ask_qty[0] = std::max<Lots64>(1, ask_qty[0] - qty);
-        out.push_back(MakeDepth(t, seq++, Side::kAsk, ask, ask_qty[0], inst.symbol_id()));
+        out.push_back(
+            MakeDepth(t, seq++, Side::kAsk, ask, static_cast<Lots>(ask_qty[0]), inst.symbol_id()));
       }
     } else {
       // Ordinary quantity churn at a random level: additions and cancels.

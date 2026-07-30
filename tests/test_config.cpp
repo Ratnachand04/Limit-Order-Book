@@ -94,7 +94,8 @@ TEST(Yaml, MissingKeysYieldNullAndChainSafely) {
   EXPECT_TRUE(n["nope"]["deeper"].IsNull());  // must not dereference nothing
   EXPECT_EQ(n["nope"].AsIntOr(99), 99);
   EXPECT_EQ(n["nope"].AsStringOr("fallback"), "fallback");
-  EXPECT_THROW(n["nope"].AsInt("nope"), yaml::ParseError);
+  EXPECT_THROW({ volatile std::int64_t v = n["nope"].AsInt("nope"); (void)v; },
+               yaml::ParseError);
 }
 
 TEST(Yaml, RejectsUnsupportedConstructsLoudly) {

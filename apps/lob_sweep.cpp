@@ -15,6 +15,7 @@
 // Runs are sequential and each resets the RNG to the configured seed, so the
 // matrix is reproducible cell by cell and independent of the order it is run in.
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <exception>
 #include <iostream>

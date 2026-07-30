@@ -3,7 +3,9 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <cstdlib>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -153,9 +155,6 @@ LadderResult RunLadder(const std::string& name, const Instrument& inst,
   r.fills = sim.stats().fills;
   r.quotes = strategy->diagnostics().quotes_placed;
   r.identity_residual = sim.ledger().IdentityResidualX2();
-  for (const Fill& f : sim.fills()) {
-    (void)f;
-  }
   r.max_abs_inventory = std::abs(sim.ledger().inventory_lots());
   return r;
 }
@@ -202,7 +201,7 @@ TEST(StrategyLadder, InventoryStaysInsideTheHardCap) {
   const Instrument inst = testing::TestInstrument();
   const std::vector<Event> events =
       testing::SyntheticSession(inst, 55, 1'600'000'000'000'000LL, 180 * kUsPerSecond, 40);
-  for (const std::string& name : {"S1", "S2_AS", "S3"}) {
+  for (const char* name : {"S1", "S2_AS", "S3"}) {
     SCOPED_TRACE(name);
     const LadderResult r = RunLadder(name, inst, events);
     // The cap is 5 lots; forced liquidation flattens anything beyond it.

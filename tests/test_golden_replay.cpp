@@ -19,6 +19,7 @@
 #include <fstream>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include <lob/analytics/recorders.hpp>

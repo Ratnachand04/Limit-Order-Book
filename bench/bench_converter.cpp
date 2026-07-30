@@ -75,7 +75,10 @@ void BM_ConvertDepthLines(benchmark::State& state) {
     for (const std::string& line : lines) {
       converter.ProcessLine(line, n++);
     }
-    benchmark::DoNotOptimize(converter.stats().events_emitted);
+    // Copied into a local: the const-ref overload of DoNotOptimize is deprecated
+    // because it can still permit the optimisation it exists to prevent.
+    std::uint64_t emitted = converter.stats().events_emitted;
+    benchmark::DoNotOptimize(emitted);
     messages += lines.size();
   }
   // Items are MESSAGES, which is what the >= 1M msg/s target is quoted in.

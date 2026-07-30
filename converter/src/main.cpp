@@ -1,9 +1,9 @@
 // lob_convert -- recorder JSONL -> binary Event file (master plan Phase 1).
 //
 // Usage:
-//   lob_convert --symbol BTCUSDT --tick 0.01 --lot 0.001 \
-//               --in data/raw/BTCUSDT_2026-08-01T00.jsonl \
-//               --out data/binary/BTCUSDT_2026-08-01T00.lobbin \
+//   lob_convert --symbol BTCUSDT --tick 0.01 --lot 0.001
+//               --in data/raw/BTCUSDT_2026-08-01T00.jsonl
+//               --out data/binary/BTCUSDT_2026-08-01T00.lobbin
 //               --gaps data/binary/BTCUSDT_2026-08-01T00.gaps.csv
 //
 // Gzipped input is read through a pipe rather than linked against zlib, which

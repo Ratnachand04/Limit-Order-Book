@@ -1,0 +1,2 @@
+run_id,strategy,symbol,queue_assumption,placements,level_increases,level_decreases,trades_seen,lots_explained_by_trades,lots_attributed_to_cancels,lots_trade_credit_expired,trade_attribution_residual_fraction,fills_queue_consumed,fills_traded_through,fills_crossed
+golden,S1,TESTUSDT,PESS,1478,1835,2701,4749,2511,2933483,38,0.0149078070,97,121,480

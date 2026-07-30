@@ -55,7 +55,11 @@ void RunStrategyBenchmark(benchmark::State& state, const std::string& name, Queu
     state.ResumeTiming();
 
     const SimulatorStats& stats = sim.Run(events);
-    benchmark::DoNotOptimize(stats.fills);
+    // Copied into a local first: the const-ref overload of DoNotOptimize is
+    // deprecated precisely because it can still permit the optimisation it is
+    // meant to prevent.
+    std::uint64_t fills = stats.fills;
+    benchmark::DoNotOptimize(fills);
     processed += stats.market_events;
   }
   // Items are MARKET EVENTS: the unit the 300-500k events/s target is in.

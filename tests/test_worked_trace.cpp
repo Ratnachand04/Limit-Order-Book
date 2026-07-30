@@ -197,8 +197,16 @@ TEST_F(WorkedTraceTest, Step7_MarkoutShowsTheEdgeGivenBackAtOneSecond) {
 TEST_F(WorkedTraceTest, QueueAttributionSplitsTradesFromCancels) {
   Run(QueueModel::kPess);
   const QueueTrackerStats& q = sim_->queue_tracker().stats();
-  // 2.0 + 3.5 traded at our level; 1.5 of level decrease was unexplained.
-  EXPECT_EQ(q.lots_explained_by_trades, inst_.ToLots(2.0));
+
+  // Two level decreases are explained by trades:
+  //   step 4:  6.5 -> 4.5, a fall of 2.0, matched by the 2.0 print
+  //   step 7:  3.0 -> 0,   a fall of 3.0, matched by the 3.5 print
+  // The 3.5 print exceeds the 3.0 that was left at the level, so only 3.0 of it
+  // can be credited against a decrease; the rest is simply the print running
+  // past the level.
+  EXPECT_EQ(q.lots_explained_by_trades, inst_.ToLots(5.0));
+
+  // Step 5 is the only unexplained decrease: 4.5 -> 3.0 with no print behind it.
   EXPECT_EQ(q.lots_attributed_to_cancels, inst_.ToLots(1.5));
   EXPECT_EQ(q.trades_seen, 2u);
   EXPECT_EQ(q.placements, 1u);

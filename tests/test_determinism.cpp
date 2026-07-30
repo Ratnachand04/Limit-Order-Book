@@ -75,6 +75,23 @@ RunArtifacts RunOnce(const std::string& tag, const RunConfig& base,
   return out;
 }
 
+// Removes the single manifest line that names the output directory, so two runs
+// writing to different places can still be compared line for line.
+std::string StripOutputDir(const std::string& manifest) {
+  std::string out;
+  std::size_t pos = 0;
+  while (pos < manifest.size()) {
+    const std::size_t nl = manifest.find('\n', pos);
+    const std::size_t end = (nl == std::string::npos) ? manifest.size() : nl + 1;
+    const std::string line = manifest.substr(pos, end - pos);
+    if (line.rfind("output_dir:", 0) != 0) {
+      out += line;
+    }
+    pos = end;
+  }
+  return out;
+}
+
 RunConfig DeterminismConfig(const Instrument& inst) {
   RunConfig c = testing::MakeTestConfig(inst, QueueModel::kProp, 50 * kUsPerMilli);
   // Jitter ON: the whole point is that randomness is reproducible, not absent.
@@ -110,7 +127,10 @@ TEST(Determinism, TwoRunsProduceByteIdenticalOutputs) {
   EXPECT_EQ(a.markouts, b.markouts);
   EXPECT_EQ(a.pnl_daily, b.pnl_daily);
   EXPECT_EQ(a.queue_stats, b.queue_stats);
-  EXPECT_EQ(a.manifest, b.manifest);
+  // The manifest records where the run wrote its output, and the two runs must
+  // write to different directories or they would overwrite each other. That one
+  // line is the only thing allowed to differ.
+  EXPECT_EQ(StripOutputDir(a.manifest), StripOutputDir(b.manifest));
   EXPECT_EQ(a.fill_count, b.fill_count);
   EXPECT_EQ(a.equity_x2, b.equity_x2);
   // Same number of RNG draws, in the same order: proof that no code path

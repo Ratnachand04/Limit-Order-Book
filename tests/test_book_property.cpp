@@ -38,7 +38,9 @@ void FuzzOnce(std::uint64_t seed, int steps) {
     const double u = rng.Uniform01();
 
     if (u < 0.15) {
-      // Move the touch by a tick, deleting the level left on the wrong side.
+      // Move the touch by a tick.  The level being moved onto is deleted from
+      // the opposite side FIRST, because moving up puts the new best bid
+      // exactly where the old best ask was.
       const bool up = rng.Uniform01() < 0.5;
       if (up) {
         book.ApplyDepth(Side::kAsk, ask, 0);
@@ -55,13 +57,22 @@ void FuzzOnce(std::uint64_t seed, int steps) {
       }
     } else if (u < 0.25) {
       // A big jump, which forces the dense window to re-anchor.
+      //
+      // Delivered as a SNAPSHOT rather than as diffs: a jump of tens of
+      // thousands of ticks leaves every previously created level on the wrong
+      // side of the new touch, and patching that with diffs would generate a
+      // crossed book. A real venue re-anchors the same way -- which is exactly
+      // why the book rebuilds on a snapshot instead of merging (pitfall #4).
       const Ticks jump = static_cast<Ticks>(rng.UniformInt(-40000, 40000));
-      book.ApplyDepth(Side::kBid, bid, 0);
-      book.ApplyDepth(Side::kAsk, ask, 0);
       bid += jump;
       ask = bid + 1;
-      book.ApplyDepth(Side::kBid, bid, 1 + rng.UniformInt(1, 99));
-      book.ApplyDepth(Side::kAsk, ask, 1 + rng.UniformInt(1, 99));
+      book.ApplySnapshotBegin();
+      const int levels = static_cast<int>(rng.UniformInt(1, 10));
+      for (int d = 0; d < levels; ++d) {
+        book.ApplySnapshotLevel(Side::kBid, bid - d, rng.UniformInt(1, 200));
+        book.ApplySnapshotLevel(Side::kAsk, ask + d, rng.UniformInt(1, 200));
+      }
+      book.ApplySnapshotEnd();
     } else if (u < 0.35) {
       // Deep, out-of-window levels: exercises the map fallback.
       const bool is_bid = rng.Uniform01() < 0.5;

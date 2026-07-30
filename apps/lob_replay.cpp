@@ -1,11 +1,13 @@
 // lob_replay -- run one (config, data range) and write the analytics CSVs.
 //
-//   lob_replay --config configs/s2_as.yaml \
-//              --input data/binary/BTCUSDT_2026-09-01.lobbin \
+//   lob_replay --config configs/s2_as.yaml
+//              --input data/binary/BTCUSDT_2026-09-01.lobbin
 //              --output data/results/s2_as_pess_fee20
 //
 // Command-line overrides exist so the experiment matrix (Part 7) is a sweep
 // over one config file rather than a directory of near-identical copies.
+#include <cmath>
+#include <cstdlib>
 #include <exception>
 #include <iostream>
 #include <memory>

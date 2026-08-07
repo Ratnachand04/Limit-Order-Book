@@ -186,8 +186,12 @@ void QueueTracker::OnTrade(Side aggressor, Ticks price_ticks, Lots64 qty, Ts ts_
   // Each of our orders is an independent shadow that does not deplete real
   // liquidity, so every one of them sees the full trade quantity.  This is the
   // shadow-order limitation stated prominently in §2.5 / Part 11 #11.
-  std::vector<OrderId> ids = level.orders;
-  for (const OrderId id : ids) {
+  //
+  // The ids are snapshotted because Emit() calls the fill sink, which can erase
+  // from orders_ and levels_ before we get back here.  The buffer is a reused
+  // member so the snapshot costs no allocation.
+  scratch_ids_.assign(level.orders.begin(), level.orders.end());
+  for (const OrderId id : scratch_ids_) {
     const auto oit = orders_.find(id);
     if (oit == orders_.end()) {
       continue;
@@ -283,10 +287,12 @@ void QueueTracker::OnLevelUpdate(Side side, Ticks price_ticks, Lots64 new_visibl
 // Cross / trade-through
 // ---------------------------------------------------------------------------
 void QueueTracker::OnBook(Ticks best_bid, Ticks best_ask, Ts /*ts_us*/) {
+  // This runs on every market event of the replay, and in the overwhelming
+  // majority of them nothing is crossed, so the no-op path must cost nothing.
   if (orders_.empty()) {
     return;
   }
-  std::vector<OrderId> to_fill;
+  scratch_ids_.clear();
   for (const auto& [id, q] : orders_) {
     if (q.remaining <= 0) {
       continue;
@@ -296,12 +302,12 @@ void QueueTracker::OnBook(Ticks best_bid, Ticks best_ask, Ts /*ts_us*/) {
     // matched by the exchange; a shadow order that survives this is a fiction
     // that flatters fill rates.
     if (q.side == Side::kBid && HasAsk(best_ask) && best_ask <= q.price_ticks) {
-      to_fill.push_back(id);
+      scratch_ids_.push_back(id);
     } else if (q.side == Side::kAsk && HasBid(best_bid) && best_bid >= q.price_ticks) {
-      to_fill.push_back(id);
+      scratch_ids_.push_back(id);
     }
   }
-  for (const OrderId id : to_fill) {
+  for (const OrderId id : scratch_ids_) {
     const auto it = orders_.find(id);
     if (it == orders_.end()) {
       continue;

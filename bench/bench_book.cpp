@@ -18,6 +18,7 @@
 #include <lob/book/map_book.hpp>
 #include <lob/rng.hpp>
 
+#include "cycle_timer.hpp"
 #include "test_support.hpp"
 
 namespace {
@@ -79,37 +80,48 @@ BENCHMARK(BM_ApplyDepthThroughput<DenseBook>)->Name("DenseBook/ApplyDepth/throug
 BENCHMARK(BM_ApplyDepthThroughput<MapBook>)->Name("MapBook/ApplyDepth/throughput");
 
 // --- tail latency -----------------------------------------------------------
+// Timed with a fenced rdtsc rather than steady_clock: on Windows the steady
+// clock quantises to ~100 ns, which reported p50 = 0 for an operation that
+// takes about 9 ns.  See bench/cycle_timer.hpp.
 template <typename BookT>
 void BM_ApplyDepthPercentiles(benchmark::State& state) {
   const std::vector<Update> updates = MakeUpdates(1 << 16, 999);
   BookT book;
   Prime(book, 10'000'000);
 
-  std::vector<double> samples;
-  samples.reserve(1 << 20);
+  const double ns_per_tick = lob::bench::TscNanosPerTick();
+  const double overhead_ns = lob::bench::TscOverheadNanos();
+
+  std::vector<std::uint64_t> ticks;
+  ticks.reserve(1 << 21);
 
   std::size_t i = 0;
   for (auto _ : state) {
     const Update& u = updates[i & (updates.size() - 1)];
-    const auto t0 = std::chrono::steady_clock::now();
+    const std::uint64_t t0 = lob::bench::TscBegin();
     book.ApplyDepth(u.side, u.price, u.qty);
-    const auto t1 = std::chrono::steady_clock::now();
-    samples.push_back(std::chrono::duration<double, std::nano>(t1 - t0).count());
+    const std::uint64_t t1 = lob::bench::TscEnd();
+    ticks.push_back(t1 - t0);
     ++i;
   }
-  if (samples.empty()) {
+  if (ticks.empty()) {
     return;
   }
-  std::sort(samples.begin(), samples.end());
-  auto pct = [&samples](double p) {
-    const std::size_t idx = static_cast<std::size_t>(p * static_cast<double>(samples.size() - 1));
-    return samples[idx];
+  std::sort(ticks.begin(), ticks.end());
+  auto pct_ns = [&](double p) {
+    const std::size_t idx = static_cast<std::size_t>(p * static_cast<double>(ticks.size() - 1));
+    // The timer's own cost is subtracted, floored at zero: a sample below the
+    // instrument's overhead carries no information beyond "under the floor".
+    const double raw = static_cast<double>(ticks[idx]) * ns_per_tick;
+    return raw > overhead_ns ? raw - overhead_ns : 0.0;
   };
-  state.counters["p50_ns"] = pct(0.50);
-  state.counters["p90_ns"] = pct(0.90);
-  state.counters["p99_ns"] = pct(0.99);
-  state.counters["p999_ns"] = pct(0.999);
-  state.counters["max_ns"] = samples.back();
+  state.counters["p50_ns"] = pct_ns(0.50);
+  state.counters["p90_ns"] = pct_ns(0.90);
+  state.counters["p99_ns"] = pct_ns(0.99);
+  state.counters["p999_ns"] = pct_ns(0.999);
+  state.counters["max_ns"] = static_cast<double>(ticks.back()) * ns_per_tick;
+  // Reported so the numbers above can be read against the instrument's floor.
+  state.counters["timer_overhead_ns"] = overhead_ns;
   state.SetItemsProcessed(state.iterations());
 }
 BENCHMARK(BM_ApplyDepthPercentiles<DenseBook>)->Name("DenseBook/ApplyDepth/percentiles");

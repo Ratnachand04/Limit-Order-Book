@@ -63,6 +63,23 @@ class Instrument {
 
   [[nodiscard]] std::int64_t cash_per_tick_lot() const { return cash_per_tick_lot_; }
 
+  // --- fast decimal path ---------------------------------------------------
+  //
+  // Almost every crypto instrument has a tick and lot size that is a negative
+  // power of ten (0.01, 0.001, 0.0001).  When that holds, converting a decimal
+  // string to the integer grid needs no floating point at all: "99999.99" with
+  // a 0.01 tick IS 9999999 ticks, read straight off the digits.
+  //
+  // That matters because the converter's cost is almost entirely number
+  // parsing, and the double route costs a from_chars, a multiply and a llround
+  // per field to arrive at an integer that was sitting in the input all along.
+  // Instruments whose tick is not a power of ten (0.5, 2.5, 5) fall back to the
+  // double path, which is why both still exist.
+  [[nodiscard]] bool tick_is_pow10() const { return tick_decimals_ >= 0; }
+  [[nodiscard]] int tick_decimals() const { return tick_decimals_; }
+  [[nodiscard]] bool lot_is_pow10() const { return lot_decimals_ >= 0; }
+  [[nodiscard]] int lot_decimals() const { return lot_decimals_; }
+
  private:
   std::string symbol_;
   std::uint8_t symbol_id_ = 0;
@@ -71,6 +88,9 @@ class Instrument {
   double inv_tick_ = 0.0;
   double inv_lot_ = 0.0;
   std::int64_t cash_per_tick_lot_ = 0;
+  // Decimal places when the size is exactly 10^-n; -1 when it is not.
+  int tick_decimals_ = -1;
+  int lot_decimals_ = -1;
 };
 
 // A small registry so `symbol_id` in the binary stream can be resolved back to

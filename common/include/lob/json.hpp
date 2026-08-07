@@ -56,8 +56,34 @@ class Reader {
   bool ReadNumberLoose(double& out);
   bool ReadIntLoose(std::int64_t& out);
 
+  // Reads a decimal (quoted or bare) as a fixed-point integer with `decimals`
+  // implied places: "99999.99" with decimals=2 yields 9999999.
+  //
+  // This is the converter's hot path.  Prices and quantities live on a decimal
+  // grid, so the integer the book actually wants is already sitting in the
+  // digits; going via double costs a from_chars, a multiply and a llround to
+  // get back to it.  Excess input places are rounded half-away-from-zero, so
+  // the result matches llround(value / size) exactly.
+  bool ReadFixedPoint(int decimals, std::int64_t& out);
+
   // Skips exactly one value of any type at the cursor.
   bool SkipValue();
+
+  // Skips one value and hands back the span it occupied.
+  //
+  // For containers this uses BRACKET MATCHING rather than a recursive parse.
+  // The converter only ever needs the *extent* of the recorder envelope's "d"
+  // payload, not its contents, and walking it recursively meant every message
+  // was parsed three times: once to find the payload, once to probe for
+  // combined-stream wrapping, and once for real.  Bracket matching is a single
+  // tight loop with no per-token dispatch.
+  bool SkipValueSpan(std::string_view& span);
+
+  // True when the next member key of the object being iterated equals `key`,
+  // without consuming anything.  Lets a caller test for an optional wrapper
+  // (such as the combined-stream {"stream":...,"data":...} form) in O(key)
+  // instead of walking the whole object.
+  [[nodiscard]] bool PeekNextKeyIs(std::string_view key);
 
   // Peeking ---------------------------------------------------------------
   [[nodiscard]] char Peek();          // '\0' at end of input
@@ -86,5 +112,10 @@ class Reader {
 // Returns false on malformed input.  Used by the loose readers above.
 bool ParseDouble(std::string_view text, double& out);
 bool ParseInt(std::string_view text, std::int64_t& out);
+
+// "-12.345" with decimals=2 -> -1235 (half away from zero).  Returns false on
+// anything that is not a plain decimal, including exponent notation, so the
+// caller can fall back to the double path.
+bool ParseFixedPoint(std::string_view text, int decimals, std::int64_t& out);
 
 }  // namespace lob::json

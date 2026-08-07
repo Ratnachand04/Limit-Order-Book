@@ -70,10 +70,31 @@ class OrderGateway {
  private:
   OrderId NewId() { return ++next_id_; }
 
+  // `orders_` keeps every order ever placed, because the analytics and the
+  // tests need to look up a filled order's placement details long after it went
+  // terminal.  That makes it a bad thing to iterate: over a day of quoting it
+  // grows to tens of thousands of entries.
+  //
+  // `live_` is the index that keeps the hot queries honest.  AtInventoryCap()
+  // calls LiveQty() twice on every strategy timer tick, and the touch-rule fill
+  // model calls LiveOrders() on every trade; scanning `orders_` there made
+  // replay cost O(orders placed so far) per query, i.e. quadratic in the length
+  // of the run.  Live orders number a handful, so a flat vector beats any node
+  // structure here.
+  void AddLive(OrderId id, Side side);
+  void RemoveLive(OrderId id, Side side);
+  [[nodiscard]] std::vector<OrderId>& live(Side side) {
+    return live_[side == Side::kBid ? 0 : 1];
+  }
+  [[nodiscard]] const std::vector<OrderId>& live(Side side) const {
+    return live_[side == Side::kBid ? 0 : 1];
+  }
+
   EventQueue* queue_;
   LatencyModel* latency_;
   Clock* clock_;
   std::map<OrderId, Order> orders_;
+  std::vector<OrderId> live_[2];
   OrderId next_id_ = 0;
   std::uint64_t placements_ = 0;
   std::uint64_t cancels_ = 0;

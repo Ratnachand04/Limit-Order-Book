@@ -13,6 +13,21 @@ namespace {
 // so e.g. 0.01 * 0.00001 * 1e8 lands at 9.999999999999998 rather than 10).
 constexpr double kIntegerTolerance = 1e-6;
 
+// Returns n when `size` is exactly 10^-n for 0 <= n <= 12, otherwise -1.
+// Compared against the reconstructed power rather than by taking a log, so a
+// value that merely looks like 0.001 but is not does not slip through.
+int DecimalPowerOfTen(double size) {
+  double scale = 1.0;
+  for (int n = 0; n <= 12; ++n) {
+    const double candidate = 1.0 / scale;
+    if (std::fabs(size - candidate) <= 1e-15 * std::max(1.0, candidate)) {
+      return n;
+    }
+    scale *= 10.0;
+  }
+  return -1;
+}
+
 }  // namespace
 
 Instrument::Instrument(std::string symbol, std::uint8_t symbol_id, double tick_size,
@@ -29,6 +44,8 @@ Instrument::Instrument(std::string symbol, std::uint8_t symbol_id, double tick_s
   }
   inv_tick_ = 1.0 / tick_size_;
   inv_lot_ = 1.0 / lot_size_;
+  tick_decimals_ = DecimalPowerOfTen(tick_size_);
+  lot_decimals_ = DecimalPowerOfTen(lot_size_);
 
   const double raw = tick_size_ * lot_size_ * static_cast<double>(kCashScale);
   const double rounded = std::round(raw);

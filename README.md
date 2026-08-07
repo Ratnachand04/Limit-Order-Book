@@ -18,27 +18,66 @@ This repository builds the honest simulator, and measures the gap.
 
 ---
 
+## Engineering at a glance
+
+C++20 · 209 tests · byte-level determinism enforced in CI · measured on an
+i7-12650H, reproducible from `bench/RESULTS.md`.
+
+| | |
+|---|---|
+| Book update (`apply_depth`) | **10 ns** median, **43 ns** p99 — dense array + bit-per-tick occupancy index, cross-checked against a `std::map` reference on every update |
+| Replay (book + queue tracker + strategy) | **6.2 M events/s** single-threaded — up from 166 k after fixing an O(n²) described below |
+| JSONL → binary conversion | **1.0 M msg/s** — up from 538 k |
+| PnL decomposition identity | residual **exactly 0**, not "within tolerance" — every quantity is an integer, and the runner fails the run otherwise |
+
+Three things here are worth more than the numbers:
+
+**An O(n²) found by reading a benchmark table.** The first run showed the
+*simplest* strategy as the slowest. That made no sense, and the reason was the
+bug — the order gateway's live-order query scanned every order ever placed, and
+the touch-rule model calls it on every trade, so replay was quadratic in run
+length. A live-order index took it from 166 k to 6.2 M events/s. The unit tests
+never caught it and could not have: quadratic behaviour is only visible at
+length.
+
+**An exact identity instead of a tolerance.** Cash is an integer count of 1e-8
+units, fees are integer tenths of a basis point, and every value is carried
+doubled so a half-tick mid never introduces a fraction. `ΔE = spread capture +
+inventory − fees` therefore holds at residual exactly zero. A tolerance would
+have hidden bugs; zero means any residual at all is a defect.
+
+**A measurement that was wrong, caught and replaced.** The first latency run
+reported `p50 = 0 ns` — not a free operation, but `steady_clock` on Windows
+quantising at 100 ns. It now uses an lfence-serialised `rdtsc` with a calibrated
+cycle→ns conversion, and reports the instrument's own 14.9 ns overhead next to
+the percentiles so they can be read honestly.
+
+Full write-up, including the two targets that were missed on the first run and
+what fixed them: **[bench/RESULTS.md](bench/RESULTS.md)**.
+
+---
+
 ## Status
 
 | Phase | What | State |
 |---|---|---|
-| 0 | Python recorder, watchdog, disk report | **code complete, not yet run** |
-| 1 | Converter: JSONL → binary events, Binance sync protocol | **code complete** |
-| 2 | Book core: `std::map` reference + dense fast path + dual-run | **code complete** |
-| 3 | Event loop, virtual clock, latency, order state machine | **code complete** |
-| 4 | Queue tracker: A/B/remaining, PESS/OPT/PROP | **code complete** |
-| 5 | Ledger, exact PnL decomposition, markouts, probes | **code complete** |
-| 6 | Strategy ladder S0–S3, A–S and GLFT | **code complete** |
-| 7 | Experiment matrix runner, figure generation | **code complete** |
+| 0 | Python recorder, watchdog, disk report | code complete, **not yet run** |
+| 1 | Converter: JSONL → binary events, Binance sync protocol | complete |
+| 2 | Book core: `std::map` reference + dense fast path + dual-run | complete |
+| 3 | Event loop, virtual clock, latency, order state machine | complete |
+| 4 | Queue tracker: A/B/remaining, PESS/OPT/PROP | complete |
+| 5 | Ledger, exact PnL decomposition, markouts, probes | complete |
+| 6 | Strategy ladder S0–S3, A–S and GLFT | complete |
+| 7 | Experiment matrix runner, figure generation | complete |
 
-**No results exist yet.** No data has been recorded, so no run has been
-performed, so there are no numbers in this README, in `bench/RESULTS.md`, or
-anywhere else. That is deliberate: this project's governing rule is that every
-number it produces is measured, and a README with plausible-looking placeholder
-figures is exactly how a fake number ends up in an interview.
+**No research results exist yet — no market data has been recorded.** The
+performance numbers above are real and reproducible; the RQ1–RQ5 tables below are
+empty templates, and stay empty until the recorder has run.
 
-The results section below is a template. It gets filled in from committed CSVs,
-by script, once the recorder has run.
+That is deliberate. The governing rule of this project is that every number it
+publishes is measured, and a README seeded with plausible placeholder figures is
+exactly how a fabricated number ends up being quoted out loud in an interview.
+The results section is filled in from committed CSVs, by script, or not at all.
 
 ---
 

@@ -75,6 +75,68 @@ bool ParseDouble(std::string_view text, double& out) {
 #endif
 }
 
+bool ParseFixedPoint(std::string_view text, int decimals, std::int64_t& out) {
+  if (text.empty() || decimals < 0 || decimals > 18) {
+    return false;
+  }
+  std::size_t i = 0;
+  bool negative = false;
+  if (text[i] == '+' || text[i] == '-') {
+    negative = (text[i] == '-');
+    ++i;
+  }
+
+  std::int64_t value = 0;
+  bool any_digit = false;
+  // Integer part.
+  for (; i < text.size() && text[i] >= '0' && text[i] <= '9'; ++i) {
+    // Guard against a hostile or corrupt field overflowing silently.
+    if (value > (std::numeric_limits<std::int64_t>::max() - 9) / 10) {
+      return false;
+    }
+    value = value * 10 + (text[i] - '0');
+    any_digit = true;
+  }
+
+  int consumed = 0;
+  bool round_up = false;
+  if (i < text.size() && text[i] == '.') {
+    ++i;
+    for (; i < text.size() && text[i] >= '0' && text[i] <= '9'; ++i) {
+      const int digit = text[i] - '0';
+      any_digit = true;
+      if (consumed < decimals) {
+        if (value > (std::numeric_limits<std::int64_t>::max() - 9) / 10) {
+          return false;
+        }
+        value = value * 10 + digit;
+        ++consumed;
+      } else if (consumed == decimals) {
+        // First discarded place decides the rounding; half away from zero.
+        round_up = digit >= 5;
+        ++consumed;
+      }
+    }
+  }
+  // Anything left over (an exponent, a stray character) means this is not a
+  // plain decimal and the caller should use the general path.
+  if (i != text.size() || !any_digit) {
+    return false;
+  }
+  // Pad when the input carried fewer places than the grid needs.
+  for (; consumed < decimals; ++consumed) {
+    if (value > (std::numeric_limits<std::int64_t>::max() - 9) / 10) {
+      return false;
+    }
+    value *= 10;
+  }
+  if (round_up) {
+    ++value;
+  }
+  out = negative ? -value : value;
+  return true;
+}
+
 bool ParseInt(std::string_view text, std::int64_t& out) {
   if (text.empty()) {
     return false;
@@ -419,6 +481,37 @@ bool Reader::ReadNumberLoose(double& out) {
   return ReadDouble(out);
 }
 
+bool Reader::ReadFixedPoint(int decimals, std::int64_t& out) {
+  if (!ok_) {
+    return false;
+  }
+  SkipWs();
+  std::string_view text;
+  if (i_ < s_.size() && s_[i_] == '"') {
+    if (!ReadStringRaw(text, nullptr)) {
+      return false;
+    }
+  } else {
+    const std::size_t start = i_;
+    if (i_ < s_.size() && (s_[i_] == '-' || s_[i_] == '+')) {
+      ++i_;
+    }
+    while (i_ < s_.size() && ((s_[i_] >= '0' && s_[i_] <= '9') || s_[i_] == '.')) {
+      ++i_;
+    }
+    if (i_ == start) {
+      Fail("expected a decimal number");
+      return false;
+    }
+    text = s_.substr(start, i_ - start);
+  }
+  if (!ParseFixedPoint(text, decimals, out)) {
+    Fail("value is not a plain decimal");
+    return false;
+  }
+  return true;
+}
+
 bool Reader::ReadIntLoose(std::int64_t& out) {
   if (!ok_) {
     return false;
@@ -436,6 +529,90 @@ bool Reader::ReadIntLoose(std::int64_t& out) {
     return true;
   }
   return ReadInt(out);
+}
+
+bool Reader::SkipValueSpan(std::string_view& span) {
+  if (!ok_) {
+    return false;
+  }
+  SkipWs();
+  if (i_ >= s_.size()) {
+    Fail("expected a value");
+    return false;
+  }
+  const std::size_t start = i_;
+  const char c = s_[i_];
+
+  if (c == '{' || c == '[') {
+    // Bracket matching.  Correctness rests on one thing: brace and bracket
+    // characters inside string literals must not be counted, so the scan
+    // tracks string state and steps over backslash escapes.
+    int depth = 0;
+    bool in_string = false;
+    while (i_ < s_.size()) {
+      const char ch = s_[i_];
+      if (in_string) {
+        if (ch == '\\') {
+          i_ += 2;
+          continue;
+        }
+        if (ch == '"') {
+          in_string = false;
+        }
+        ++i_;
+        continue;
+      }
+      if (ch == '"') {
+        in_string = true;
+        ++i_;
+        continue;
+      }
+      if (ch == '{' || ch == '[') {
+        ++depth;
+        ++i_;
+        continue;
+      }
+      if (ch == '}' || ch == ']') {
+        --depth;
+        ++i_;
+        if (depth == 0) {
+          span = s_.substr(start, i_ - start);
+          return true;
+        }
+        if (depth < 0) {
+          Fail("unbalanced bracket");
+          return false;
+        }
+        continue;
+      }
+      ++i_;
+    }
+    Fail("unterminated container");
+    return false;
+  }
+
+  // Scalars are cheap enough that the general skipper is fine.
+  if (!SkipValue()) {
+    return false;
+  }
+  span = s_.substr(start, i_ - start);
+  return true;
+}
+
+bool Reader::PeekNextKeyIs(std::string_view key) {
+  if (!ok_) {
+    return false;
+  }
+  const std::size_t saved_i = i_;
+  const bool saved_fresh = fresh_container_;
+  std::string_view found;
+  const bool matched = NextMember(found) && found == key;
+  // Restore the cursor whatever happened; this is a pure lookahead.
+  i_ = saved_i;
+  fresh_container_ = saved_fresh;
+  ok_ = true;
+  error_ = {};
+  return matched;
 }
 
 bool Reader::SkipValue() {

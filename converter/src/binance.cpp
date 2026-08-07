@@ -18,27 +18,52 @@ void SetError(std::string* error, std::string_view what, std::string_view detail
 constexpr Ts kMsToUs = 1000;
 
 // Reads a price/quantity pair of the form ["7403.89", "0.002"].
+//
+// This is the innermost loop of the whole conversion stage -- a day of one
+// symbol is tens of millions of these -- so it takes the integer path whenever
+// the instrument's grid allows it, and only falls back to double parsing for
+// instruments whose tick or lot size is not a power of ten.
 bool ReadLevel(json::Reader& r, const Instrument& inst, Ticks& px, Lots& qty) {
   if (!r.EnterArray()) {
     return false;
   }
-  double price = 0.0;
-  double quantity = 0.0;
-  if (!r.NextElement() || !r.ReadNumberLoose(price)) {
-    return false;
+
+  if (inst.tick_is_pow10()) {
+    std::int64_t ticks = 0;
+    if (!r.NextElement() || !r.ReadFixedPoint(inst.tick_decimals(), ticks)) {
+      return false;
+    }
+    px = static_cast<Ticks>(ticks);
+  } else {
+    double price = 0.0;
+    if (!r.NextElement() || !r.ReadNumberLoose(price)) {
+      return false;
+    }
+    px = inst.ToTicks(price);
   }
-  if (!r.NextElement() || !r.ReadNumberLoose(quantity)) {
-    return false;
+
+  if (inst.lot_is_pow10()) {
+    std::int64_t lots = 0;
+    if (!r.NextElement() || !r.ReadFixedPoint(inst.lot_decimals(), lots)) {
+      return false;
+    }
+    qty = static_cast<Lots>(lots);
+  } else {
+    double quantity = 0.0;
+    if (!r.NextElement() || !r.ReadNumberLoose(quantity)) {
+      return false;
+    }
+    qty = inst.ToLots(quantity);
   }
+
   // Drain any extra elements (spot REST snapshots historically carried a third
   // ignored field); tolerate them rather than reject the file.
+  std::string_view ignored;
   while (r.NextElement()) {
-    if (!r.SkipValue()) {
+    if (!r.SkipValueSpan(ignored)) {
       return false;
     }
   }
-  px = inst.ToTicks(price);
-  qty = inst.ToLots(quantity);
   return true;
 }
 
@@ -116,6 +141,7 @@ bool ParseRecorderLine(std::string_view line, RecorderLine& out, std::string* er
     return false;
   }
   std::string_view key;
+  std::string_view ignored;
   bool have_payload = false;
   while (r.NextMember(key)) {
     if (key == "t") {
@@ -136,19 +162,14 @@ bool ParseRecorderLine(std::string_view line, RecorderLine& out, std::string* er
         return false;
       }
     } else if (key == "d") {
-      const std::size_t start = r.pos();
-      if (!r.SkipValue()) {
+      // Bracket-matched: this only needs the payload's extent, and recursively
+      // parsing it here is what made every message cost three parses.
+      if (!r.SkipValueSpan(out.payload)) {
         SetError(error, "field 'd' is not a well-formed value");
         return false;
       }
-      // pos() is one past the value; trim to the exact span.
-      std::string_view span = line.substr(start, r.pos() - start);
-      while (!span.empty() && (span.front() == ' ' || span.front() == '\t')) {
-        span.remove_prefix(1);
-      }
-      out.payload = span;
       have_payload = true;
-    } else if (!r.SkipValue()) {
+    } else if (!r.SkipValueSpan(ignored)) {
       SetError(error, "malformed value for key", key);
       return false;
     }
@@ -164,22 +185,23 @@ bool ParseRecorderLine(std::string_view line, RecorderLine& out, std::string* er
 
   // Combined-stream form: {"stream": "...", "data": {...}}.  Descend so the
   // payload parsers always see the bare exchange object.
+  //
+  // Only the FIRST key is examined.  Binance puts "stream" first in the
+  // combined-stream envelope, and this project's own recorder never emits the
+  // wrapper at all, so the common path costs one key comparison instead of a
+  // full walk of the payload.
   json::Reader probe(out.payload);
-  if (probe.EnterObject()) {
+  if (probe.EnterObject() && probe.PeekNextKeyIs("stream")) {
     std::string_view k;
     while (probe.NextMember(k)) {
       if (k == "data") {
-        const std::size_t start = probe.pos();
-        if (probe.SkipValue()) {
-          std::string_view span = out.payload.substr(start, probe.pos() - start);
-          while (!span.empty() && (span.front() == ' ' || span.front() == '\t')) {
-            span.remove_prefix(1);
-          }
-          out.payload = span;
+        std::string_view inner;
+        if (probe.SkipValueSpan(inner)) {
+          out.payload = inner;
         }
         break;
       }
-      if (!probe.SkipValue()) {
+      if (!probe.SkipValueSpan(k)) {
         break;
       }
     }

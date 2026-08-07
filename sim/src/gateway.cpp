@@ -1,6 +1,18 @@
 #include <lob/sim/gateway.hpp>
 
+#include <algorithm>
+
 namespace lob {
+
+void OrderGateway::AddLive(OrderId id, Side side) { live(side).push_back(id); }
+
+void OrderGateway::RemoveLive(OrderId id, Side side) {
+  std::vector<OrderId>& v = live(side);
+  const auto it = std::find(v.begin(), v.end(), id);
+  if (it != v.end()) {
+    v.erase(it);
+  }
+}
 
 OrderId OrderGateway::Place(Side side, Ticks price_ticks, Lots64 qty) {
   if (qty <= 0) {
@@ -16,6 +28,7 @@ OrderId OrderGateway::Place(Side side, Ticks price_ticks, Lots64 qty) {
   o.decided_ts_us = clock_->now_us();
   o.effective_ts_us = latency_->EffectiveAt(o.decided_ts_us);
   orders_[o.id] = o;
+  AddLive(o.id, side);
   queue_->PushAction(o.effective_ts_us, ActionKind::kPlace, o.id);
   ++placements_;
   return o.id;
@@ -68,27 +81,23 @@ OrderId OrderGateway::Replace(OrderId id, Side side, Ticks price_ticks, Lots64 q
 }
 
 void OrderGateway::CancelAll() {
+  // Snapshotted because Cancel() can retire an order out of live_.
   std::vector<OrderId> ids;
-  ids.reserve(orders_.size());
-  for (const auto& [oid, o] : orders_) {
-    if (!o.terminal()) {
-      ids.push_back(oid);
-    }
-  }
+  ids.reserve(live(Side::kBid).size() + live(Side::kAsk).size());
+  ids.insert(ids.end(), live(Side::kBid).begin(), live(Side::kBid).end());
+  ids.insert(ids.end(), live(Side::kAsk).begin(), live(Side::kAsk).end());
   for (const OrderId oid : ids) {
     Cancel(oid);
   }
 }
 
 void OrderGateway::CancelSide(Side side) {
-  std::vector<OrderId> ids;
-  for (const auto& [oid, o] : orders_) {
-    if (!o.terminal() && o.side == side && !o.is_probe) {
-      ids.push_back(oid);
-    }
-  }
+  const std::vector<OrderId> ids = live(side);
   for (const OrderId oid : ids) {
-    Cancel(oid);
+    const Order* o = Find(oid);
+    if (o != nullptr && !o->is_probe) {
+      Cancel(oid);
+    }
   }
 }
 
@@ -104,11 +113,14 @@ Order* OrderGateway::FindMutable(OrderId id) {
 
 std::vector<OrderId> OrderGateway::LiveOrders(Side side, bool include_probes) const {
   std::vector<OrderId> out;
-  for (const auto& [oid, o] : orders_) {
-    if (o.side != side || o.terminal()) {
+  const std::vector<OrderId>& index = live(side);
+  out.reserve(index.size());
+  for (const OrderId oid : index) {
+    const auto it = orders_.find(oid);
+    if (it == orders_.end() || it->second.terminal()) {
       continue;
     }
-    if (o.is_probe && !include_probes) {
+    if (it->second.is_probe && !include_probes) {
       continue;
     }
     out.push_back(oid);
@@ -118,9 +130,10 @@ std::vector<OrderId> OrderGateway::LiveOrders(Side side, bool include_probes) co
 
 Lots64 OrderGateway::LiveQty(Side side) const {
   Lots64 total = 0;
-  for (const auto& [oid, o] : orders_) {
-    if (o.side == side && !o.terminal() && !o.is_probe) {
-      total += o.remaining_qty;
+  for (const OrderId oid : live(side)) {
+    const auto it = orders_.find(oid);
+    if (it != orders_.end() && !it->second.terminal() && !it->second.is_probe) {
+      total += it->second.remaining_qty;
     }
   }
   return total;
@@ -143,6 +156,7 @@ Order* OrderGateway::ActivateCancel(OrderId id) {
   }
   o->state = OrderState::kCanceled;
   o->terminal_ts_us = clock_->now_us();
+  RemoveLive(id, o->side);
   return o;
 }
 
@@ -157,15 +171,26 @@ void OrderGateway::MarkFilled(OrderId id, Lots64 qty, Ts ts_us) {
     o->remaining_qty = 0;
     o->state = OrderState::kFilled;
     o->terminal_ts_us = ts_us;
+    // Terminal orders stay in `orders_` for the analytics, but must leave the
+    // live index or every subsequent query pays for them forever.
+    RemoveLive(id, o->side);
   } else if (o->state == OrderState::kResting) {
     o->state = OrderState::kPartiallyFilled;
   }
 }
 
-void OrderGateway::Retire(OrderId id) { orders_.erase(id); }
+void OrderGateway::Retire(OrderId id) {
+  const auto it = orders_.find(id);
+  if (it != orders_.end()) {
+    RemoveLive(id, it->second.side);
+    orders_.erase(it);
+  }
+}
 
 void OrderGateway::Clear() {
   orders_.clear();
+  live_[0].clear();
+  live_[1].clear();
   next_id_ = 0;
   placements_ = 0;
   cancels_ = 0;

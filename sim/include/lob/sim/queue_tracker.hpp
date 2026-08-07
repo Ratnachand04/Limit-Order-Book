@@ -111,6 +111,13 @@ class QueueTracker {
   std::map<OrderId, QueueState> orders_;
   std::map<std::int64_t, LevelInfo> levels_;
   QueueTrackerStats stats_;
+
+  // Reused across calls so the hot paths never allocate (§4.10 "avoiding
+  // allocation in the hot loop").  OnBook runs on EVERY market event, so a
+  // vector constructed there was one malloc/free per event for the whole
+  // replay.  Both uses need a snapshot of the ids, because the fill sink can
+  // re-enter and erase from orders_ while we are iterating.
+  std::vector<OrderId> scratch_ids_;
 };
 
 }  // namespace lob
